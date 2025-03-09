@@ -13,7 +13,7 @@
 #include "common.h"
 #include "../auth/auth.h"
 
-#define GIP_HS_NAME "Microsoft Xbox Headset"
+#define GIP_HS_NAME "USB Audio"
 
 #define GIP_HS_NUM_BUFFERS 128
 
@@ -371,16 +371,15 @@ static void gip_headset_register(struct work_struct *work)
 		return;
 	}
 
-	/* set hardware volume to maximum for headset jack */
 	/* standalone & chat headsets have physical volume controls */
-	if (client->id && !headset->chat_headset) {
-		err = gip_set_audio_volume(client, 100, 50, 100);
-		if (err) {
-			dev_err(&client->dev, "%s: set volume failed: %d\n",
+	/* Reduce default volume for all connected audio devices (both headsets and headphones) */
+	err = gip_set_audio_volume(client, 60, 50, 60); // Reduce max headphone volume by 40%
+	if (err) {
+		dev_err(&client->dev, "%s: set volume failed: %d\n",
 				__func__, err);
-			return;
-		}
+		return;
 	}
+
 
 	err = gip_init_audio_out(client);
 	if (err) {
