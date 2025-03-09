@@ -1060,14 +1060,7 @@ static int xone_dongle_resume(struct usb_interface *intf)
 
 static void xone_dongle_shutdown(struct device *dev)
 {
-	struct usb_interface *intf = to_usb_interface(dev);
-	struct xone_dongle *dongle = usb_get_intfdata(intf);
-	int err;
-
-	err = xone_dongle_power_off_clients(dongle);
-	if (err)
-		dev_err(dongle->mt.dev, "%s: power off failed: %d\n",
-			__func__, err);
+    /* Do nothing to prevent the controller from turning off on shutdown */
 }
 
 static const struct usb_device_id xone_dongle_id_table[] = {
