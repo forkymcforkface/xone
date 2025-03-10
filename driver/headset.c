@@ -30,7 +30,7 @@ static const struct snd_pcm_hardware gip_headset_pcm_hw = {
 		SNDRV_PCM_INFO_INTERLEAVED |
 		SNDRV_PCM_INFO_BLOCK_TRANSFER,
 	.formats = SNDRV_PCM_FMTBIT_S16_LE,
-	.rates = SNDRV_PCM_RATE_CONTINUOUS,
+	.rates = SNDRV_PCM_RATE_48000,
 	.periods_min = 2,
 	.periods_max = GIP_HS_NUM_BUFFERS,
 };
