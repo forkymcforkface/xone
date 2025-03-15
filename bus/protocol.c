@@ -379,7 +379,8 @@ static int gip_send_pkt(struct gip_client *client,
 	if (err)
 		return err;
 
-	memcpy(client->chunk_buf_in->data, data, hdr->chunk_offset);
+	if (data)
+		memcpy(client->chunk_buf_in->data, data, hdr->chunk_offset);
 
 	return 0;
 }
