@@ -14,11 +14,9 @@
 
 ## Compatibility
 
-- [x] Wired devices (via USB)
+- [ ] Wired devices (via USB) Wired support removed as to not interfere with devices that required xpad (8bitdo)
 - [x] Wireless devices (with Xbox Wireless Dongle)
 - [ ] Bluetooth devices (check out [`xpadneo`](https://github.com/atar-axis/xpadneo))
-
-Installing `xone` will disable the `xpad` kernel driver. If you are still using Xbox or Xbox 360 peripherals, you will have to install [`xpad-noone`](https://github.com/medusalix/xpad-noone) as a replacement for `xpad`.
 
 ## Important notes
 
