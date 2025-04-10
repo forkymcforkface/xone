@@ -546,27 +546,6 @@ static void xone_wired_disconnect(struct usb_interface *intf)
 
 static const struct usb_device_id xone_wired_id_table[] = {
 	{ XONE_WIRED_VENDOR(0x045e) }, /* Microsoft */
-	{ XONE_WIRED_VENDOR(0x0738) }, /* Mad Catz */
-	{ XONE_WIRED_VENDOR(0x0e6f) }, /* PDP */
-	{ XONE_WIRED_VENDOR(0x0f0d) }, /* Hori */
-	{ XONE_WIRED_VENDOR(0x1532) }, /* Razer */
-	{ XONE_WIRED_VENDOR(0x24c6) }, /* PowerA */
-	{ XONE_WIRED_VENDOR(0x20d6) }, /* BDA */
-	{ XONE_WIRED_VENDOR(0x044f) }, /* Thrustmaster */
-	{ XONE_WIRED_VENDOR(0x10f5) }, /* Turtle Beach */
-	{ XONE_WIRED_VENDOR(0x2e24) }, /* Hyperkin */
-	{ XONE_WIRED_VENDOR(0x3285) }, /* Nacon */
-	{ XONE_WIRED_VENDOR(0x2dc8) }, /* 8BitDo */
-	{ XONE_WIRED_VENDOR(0x2e95) }, /* SCUF */
-	{ XONE_WIRED_VENDOR(0x3537) }, /* GameSir */
-	{ XONE_WIRED_VENDOR(0x11c1) }, /* ??? */
-	{ XONE_WIRED_VENDOR(0x294b) }, /* Snakebyte */
-	{ XONE_WIRED_VENDOR(0x2c16) }, /* Priferential */
-	{ XONE_WIRED_VENDOR(0x0b05) }, /* ASUS */
-	{ XONE_WIRED_VENDOR(0x413d) }, /* BIGBIG WON */
-	{ XONE_WIRED_VENDOR(0x046d) }, /* Logitech Astro */
-	{ XONE_WIRED_VENDOR(0x0079) }, /* EasySMX */
-	{ XONE_WIRED_VENDOR(0x1038) }, /* SteelSeries ApS */
 	{ },
 };
 
