@@ -1064,12 +1064,13 @@ static void xone_dongle_shutdown(struct device *dev)
 	struct xone_dongle *dongle = usb_get_intfdata(intf);
 	int err;
 
-	if (system_state != SYSTEM_RESTART) {
-		err = xone_dongle_power_off_clients(dongle);
-		if (err)
-			dev_err(dongle->mt.dev, "%s: power off failed: %d\n",
-				__func__, err);
-	}
+	if (system_state == SYSTEM_RESTART)
+		return;
+
+	err = xone_dongle_power_off_clients(dongle);
+	if (err)
+		dev_err(dongle->mt.dev, "%s: power off failed: %d\n",
+			__func__, err);
 }
 
 static const struct usb_device_id xone_dongle_id_table[] = {
