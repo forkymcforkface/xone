@@ -11,6 +11,7 @@
 #include <linux/sysfs.h>
 #include <linux/ieee80211.h>
 #include <linux/firmware.h>
+#include <linux/kernel.h>
 #include <net/cfg80211.h>
 
 #include "mt76.h"
@@ -1085,9 +1086,14 @@ static int xone_dongle_resume(struct usb_interface *intf)
 	return xone_mt76_resume_radio(&dongle->mt);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 static void xone_dongle_shutdown(struct device *dev)
 {
 	struct usb_interface *intf = to_usb_interface(dev);
+#else
+static void xone_dongle_shutdown(struct usb_interface *intf)
+{
+#endif
 	struct xone_dongle *dongle = usb_get_intfdata(intf);
 	int err;
 
@@ -1117,8 +1123,10 @@ static struct usb_driver xone_dongle_driver = {
 	.id_table = xone_dongle_id_table,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
 	.drvwrap.driver.shutdown = xone_dongle_shutdown,
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	.driver.shutdown = xone_dongle_shutdown,
+#else
+	.shutdown = xone_dongle_shutdown,
 #endif
 	.supports_autosuspend = true,
 	.disable_hub_initiated_lpm = true,
