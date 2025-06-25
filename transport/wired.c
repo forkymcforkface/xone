@@ -475,6 +475,10 @@ static int xone_wired_init_audio_port(struct xone_wired *wired)
 static int xone_wired_probe(struct usb_interface *intf,
 			    const struct usb_device_id *id)
 {
+	/* Only allow Microsoft vendor devices (0x045e) */
+	if (id->idVendor != 0x045e)
+		return -ENODEV;
+
 	struct xone_wired *wired;
 	int err;
 
