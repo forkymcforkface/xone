@@ -3,9 +3,8 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/medusalix/xone/releases/latest"><img src="https://img.shields.io/github/v/release/medusalix/xone?logo=github" alt="Release Badge"></a>
-    <a href="https://discord.gg/FDQxwWk"><img src="https://img.shields.io/discord/733964971842732042?label=discord&logo=discord" alt="Discord Badge"></a>
-    <a href="https://www.paypal.com/donate?hosted_button_id=BWUECKFDNY446"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif" alt="Donate Button"></a>
+    <a href="https://github.com/dlundqvist/xone/releases/latest"><img src="https://img.shields.io/github/v/release/dlundqvist/xone?logo=github" alt="Release Badge"></a>
+    <a href="https://discord.gg/J7kgN5Wm"><img src="https://img.shields.io/discord/733964971842732042?label=discord&logo=discord" alt="Discord Badge"></a>
 </p>
 
 `xone` is a Linux kernel driver for Xbox One and Xbox Series X|S accessories. It serves as a modern replacement for `xpad`, aiming to be compatible with Microsoft's *Game Input Protocol* (GIP).
@@ -25,7 +24,7 @@ Installing `xone` will disable the `xpad` kernel driver. If you are still using 
 This driver is still in active development. Use at your own risk!
 If you are running `xow` upgrading to `xone` is *highly recommended*!
 Always update your Xbox devices to the latest firmware version!
-**Any feedback including bug reports, suggestions or ideas is [*greatly appreciated*](https://discord.gg/FDQxwWk).**
+**Any feedback including bug reports, suggestions or ideas is [*greatly appreciated*](https://discord.gg/J7kgN5Wm).**
 
 ## Features
 
@@ -60,6 +59,36 @@ Always update your Xbox devices to the latest firmware version!
 
 Feel free to package `xone` for any Linux distribution or hardware you like.
 Any issues regarding the packaging should be reported to the respective maintainers.
+
+## Building and testing
+
+### Prerequisites
+
+- Linux 5.13+
+- Linux headers
+
+Build the driver
+```shell
+make
+# with debug
+make debug
+```
+
+Load modules from the build directory
+```shell
+sudo make load
+```
+
+Unload all xone modules
+```shell
+# called automatically during load as well
+sudo make unload
+```
+
+Clean all build files
+```shell
+make clean
+```
 
 ## Installation
 
@@ -105,6 +134,28 @@ Make sure to completely uninstall `xone` before updating:
 
 ```
 sudo ./uninstall.sh
+```
+
+### Steam Deck/SteamOS
+#### Automatic install
+First, let's set a password
+```bash
+# (optional, skip if you've already done this in the past)
+passwd deck
+```
+Run installation script
+```bash
+sudo sh -c "$(curl -fsSL https://raw.githubusercontent.com/dlundqvist/xone/master/install/steam-deck-install.sh)"
+```
+#### Uninstall:
+```bash
+sudo pacman -Rcns xone-dkms
+```
+Optionally, lock your deck and  remove password
+```bash
+steamos-readonly enable
+# enter current one and leave the new password blank
+passwd deck
 ```
 
 ### Using Xbox 360 controllers with xone
@@ -176,7 +227,7 @@ You can use `evtest` and `fftest` to check the input and force feedback function
 
 ### Other problems
 
-Please join the [Discord server](https://discord.gg/FDQxwWk) in case of any other problems.
+Please join the [Discord server](https://discord.gg/J7kgN5Wm) in case of any other problems.
 
 ## License
 
