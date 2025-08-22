@@ -1,6 +1,10 @@
-#!/usr/bin/env sh
+#! /usr/bin/env bash
 
 set -eu
+
+get_version() {
+    echo $(dkms status | grep xone | head -n 1 | tr -s ',:/' ' ' | cut -d ' ' -f 2)
+}
 
 if [ "$(id -u)" -ne 0 ]; then
     echo 'This script must be run as root!' >&2
@@ -8,21 +12,24 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 modules=$(lsmod | grep '^xone_' | cut -d ' ' -f 1 | tr '\n' ' ')
-version=$(dkms status xone | head -n 1 | tr -s ',:/' ' ' | cut -d ' ' -f 2)
-
 if [ -n "$modules" ]; then
     echo "Unloading modules: $modules..."
     # shellcheck disable=SC2086
-    modprobe -r -a $modules
+    modprobe -r -a $modules || true
 fi
 
-if [ -n "$version" ]; then
-    echo "Uninstalling xone $version..."
+version=$(get_version)
+while [[ -n $version ]]; do
+    echo -e "Uninstalling xone $version...\n"
     dkms remove -m xone -v "$version" --all
-    rm -r "/usr/src/xone-$version"
-    rm -f /etc/modprobe.d/xone-blacklist.conf
-    # TODO: Remove later
-    rm -f /usr/local/bin/xone-get-firmware.sh
-else
-    echo 'Driver is not installed!' >&2
-fi
+
+    version=$(get_version)
+done
+
+rm -rf /usr/src/xone* || true
+rm -rf /etc/modprobe.d/xone-blacklist.conf || true
+echo -e "All xone versions removed\n"
+
+[[ ${1:-} == "--no-firmware" ]] && exit 0
+rm -rf /lib/firmware/xow_dongle*
+echo -e "All dongle firmwares removed\n"

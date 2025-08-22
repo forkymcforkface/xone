@@ -4,10 +4,11 @@
 
 <p align="center">
     <a href="https://github.com/dlundqvist/xone/releases/latest"><img src="https://img.shields.io/github/v/release/dlundqvist/xone?logo=github" alt="Release Badge"></a>
-    <a href="https://discord.gg/J7kgN5Wm"><img src="https://img.shields.io/discord/733964971842732042?label=discord&logo=discord" alt="Discord Badge"></a>
+    <a href="https://discord.gg/T3dSC3ReuS"><img src="https://img.shields.io/discord/733964971842732042?label=discord&logo=discord" alt="Discord Badge"></a>
 </p>
 
-`xone` is a Linux kernel driver for Xbox One and Xbox Series X|S accessories. It serves as a modern replacement for `xpad`, aiming to be compatible with Microsoft's *Game Input Protocol* (GIP).
+`xone` is a Linux kernel driver for Xbox One and Xbox Series X|S accessories. It serves as a modern replacement for
+`xpad`, aiming to be compatible with Microsoft's *Game Input Protocol* (GIP).
 
 **NOTE**: This is a fork, please support the upstream project.
 
@@ -17,7 +18,8 @@
 - [x] Wireless devices (with Xbox Wireless Dongle)
 - [ ] Bluetooth devices (check out [`xpadneo`](https://github.com/atar-axis/xpadneo))
 
-Installing `xone` will disable the `xpad` kernel driver. If you are still using Xbox or Xbox 360 peripherals, you will have to install [`xpad-noone`](https://github.com/medusalix/xpad-noone) as a replacement for `xpad`.
+Installing `xone` will disable the `xpad` kernel driver. If you are still using Xbox or Xbox 360 peripherals,
+you will have to install [`xpad-noone`](https://github.com/forkymcforkface/xpad-noone) as a replacement for `xpad`.
 
 ## Important notes
 
@@ -67,6 +69,13 @@ Any issues regarding the packaging should be reported to the respective maintain
 - Linux 5.13+
 - Linux headers
 
+### Automagically
+Build the driver with debug flags, load modules, cleanup working directory
+```shell
+sudo make test
+```
+
+### Manually
 Build the driver
 ```shell
 make
@@ -98,6 +107,7 @@ make clean
 - DKMS
 - curl (for firmware download)
 - cabextract (for firmware extraction)
+- For SecureBoot-enabled systems see [SecureBoot dkms guide](https://github.com/dell/dkms#secure-boot)
 
 ### Guide
 
@@ -113,12 +123,12 @@ git clone https://github.com/dlundqvist/xone
 
 ```
 cd xone
-sudo ./install.sh
+sudo make install
 ```
 
-**NOTE:** You can use the `--release` flag to disable debug logging.
+**NOTE:** You can use the `install-debug` target instead to enable debug logging.
 
-4. Download the firmware for the wireless dongle:
+4. Download the firmware for the wireless dongle (optional, makefile automatically installs firmware):
 
 ```
 sudo install/firmware.sh
@@ -130,11 +140,14 @@ sudo install/firmware.sh
 
 ### Updating
 
-Make sure to completely uninstall `xone` before updating:
+Just run the install script again after pulling the newset changes from the repository.
 
 ```
-sudo ./uninstall.sh
+git pull
+sudo make install
 ```
+
+Reboot is highly suggested
 
 ### Steam Deck/SteamOS
 #### Automatic install
@@ -160,21 +173,32 @@ passwd deck
 
 ### Using Xbox 360 controllers with xone
 
-`xone` doesn't support Xbox 360 controllers at all. On top of that, `xone` needs to disable `xpad` driver to work properly, which would normally support Xbox 360 controllers. This is due to `xpad` also trying to handle Xbox One controllers, which `xone` aims to support.
+`xone` doesn't support Xbox 360 controllers at all. On top of that, `xone` needs to disable `xpad` driver to work
+properly, which would normally support Xbox 360 controllers. This is due to `xpad` also trying to handle Xbox One
+controllers, which `xone` aims to support.
 
-To fix that, there is a fork of `xpad` driver, called [`xpad-noone`](https://github.com/medusalix/xpad-noone) that has disabled support for Xbox One controllers, so it can coexist with `xone` driver. If you're using Xbox 360 controllers, it is recommended to use it to replace the standard `xpad` driver.
+To fix that, there is a fork of [xpad](https://github.com/paroj/xpad) driver, called [xpad-noone](https://github.com/forkymcforkface/xpad-noone) that
+has disabled support for Xbox One controllers, so it can coexist with `xone` driver. If you're using Xbox 360
+controllers, it is recommended to use it to replace the standard `xpad` driver.
 
 ### Installation on Steam Deck
 
-An installation script for the Steam Deck is available [here](https://gist.github.com/SavageCore/263a3413532bc181c9bb215c8fe6c30d). It handles all the prerequisites and other quirks, along with installing `xone-noone`.
+An installation script for the Steam Deck is available
+[here](https://gist.github.com/SavageCore/263a3413532bc181c9bb215c8fe6c30d). It handles all the prerequisites and other
+quirks, along with installing `xone-noone`.
 
-You can run it by executing the following command: `wget -O /tmp/bootstrap.sh https://gist.githubusercontent.com/SavageCore/263a3413532bc181c9bb215c8fe6c30d/raw/8cfbc292c4b55612a2ebea3227911a3c3a6ae214/bootstrap.sh && sh /tmp/bootstrap.sh`
+You can run it by executing the following command: `wget -O /tmp/bootstrap.sh
+https://gist.githubusercontent.com/SavageCore/263a3413532bc181c9bb215c8fe6c30d/raw/8cfbc292c4b55612a2ebea3227911a3c3a6ae214/bootstrap.sh &&
+sh /tmp/bootstrap.sh`
 
 ## Wireless pairing
 
-Xbox devices have to be paired to the wireless dongle. They will not automatically connect to the dongle if they have been previously plugged into a USB port or used via Bluetooth.
+Xbox devices have to be paired to the wireless dongle. They will not automatically connect to the dongle if they have
+been previously plugged into a USB port or used via Bluetooth.
 
-Instructions for pairing your devices can be found [here](https://support.xbox.com/en-US/help/hardware-network/controller/connect-xbox-wireless-controller-to-pc) (see the section on *Xbox Wireless*).
+Instructions for pairing your devices can be found
+[here](https://support.xbox.com/en-US/help/hardware-network/controller/connect-xbox-wireless-controller-to-pc)
+(see the section on *Xbox Wireless*).
 
 ## Kernel interface
 
@@ -187,7 +211,9 @@ echo 2 | sudo tee /sys/class/leds/gip*/mode
 echo 5 | sudo tee /sys/class/leds/gip*/brightness
 ```
 
-Changing the LED in the above way is temporary, it will only last until the device disconnects. To apply these settings automatically when a device connects, you can create a new `udev` rule in `/etc/udev/rules.d/50-xone.rules` with the following content:
+Changing the LED in the above way is temporary, it will only last until the device disconnects. To apply these settings
+automatically when a device connects, you can create a new `udev` rule in `/etc/udev/rules.d/50-xone.rules` with
+the following content:
 
 ```
 ACTION=="add", SUBSYSTEM=="leds", KERNEL=="gip*", ATTR{mode}="2", ATTR{brightness}="5"
@@ -227,7 +253,7 @@ You can use `evtest` and `fftest` to check the input and force feedback function
 
 ### Other problems
 
-Please join the [Discord server](https://discord.gg/J7kgN5Wm) in case of any other problems.
+Please join the [Discord server](https://discord.gg/T3dSC3ReuS) in case of any other problems.
 
 ## License
 

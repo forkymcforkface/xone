@@ -12,6 +12,7 @@
 #include <linux/ieee80211.h>
 #include <linux/firmware.h>
 #include <linux/kernel.h>
+#include <linux/workqueue.h>
 #include <net/cfg80211.h>
 
 #include "mt76.h"
@@ -30,10 +31,24 @@
 
 #define XONE_DONGLE_PAIRING_TIMEOUT msecs_to_jiffies(30000)
 #define XONE_DONGLE_PWR_OFF_TIMEOUT msecs_to_jiffies(5000)
+#define XONE_DONGLE_FW_REQ_TIMEOUT_MS 3000
+#define XONE_DONGLE_FW_REQ_RETRIES 11 // 30 seconds
+#define XONE_DONGLE_FW_LOAD_RETRIES 3
+
+#define XONE_DONGLE_OFFICIAL_VENDOR 0x045e
+#define XONE_DONGLE_OFFICIAL_PRODUCT 0x02fe
+#define XONE_DONGLE_KNOCKOFF_PRODUCT1 0x02e6
 
 enum xone_dongle_queue {
 	XONE_DONGLE_QUEUE_DATA = 0x00,
 	XONE_DONGLE_QUEUE_AUDIO = 0x02,
+};
+
+enum xone_dongle_fw_state {
+	XONE_DONGLE_FW_STATE_PENDING,
+	XONE_DONGLE_FW_STATE_STOP_LOADING,
+	XONE_DONGLE_FW_STATE_ERROR,
+	XONE_DONGLE_FW_STATE_READY,
 };
 
 struct xone_dongle_skb_cb {
@@ -86,6 +101,11 @@ struct xone_dongle {
 	wait_queue_head_t disconnect_wait;
 
 	struct workqueue_struct *event_wq;
+	struct work_struct load_fw_work;
+
+	enum xone_dongle_fw_state fw_state;
+	u16 vendor;
+	u16 product;
 };
 
 static void xone_dongle_prep_packet(struct xone_dongle_client *client,
@@ -464,22 +484,33 @@ static void xone_dongle_handle_event(struct work_struct *work)
 	struct xone_dongle_event *evt = container_of(work, typeof(*evt), work);
 	int err = 0;
 
+	/* Do not process events when firmware is not ready */
+	if (evt->dongle->fw_state < XONE_DONGLE_FW_STATE_READY) {
+		pr_debug("%s: firmware not loaded yet", __func__);
+		goto handle_event_free;
+	}
+
 	switch (evt->type) {
 	case XONE_DONGLE_EVT_ADD_CLIENT:
+		pr_debug("%s: XONE_DONGLE_EVT_ADD_CLIENT", __func__);
 		err = xone_dongle_add_client(evt->dongle, evt->address);
 		break;
 	case XONE_DONGLE_EVT_REMOVE_CLIENT:
+		pr_debug("%s: XONE_DONGLE_EVT_REMOVE_CLIENT", __func__);
 		err = xone_dongle_remove_client(evt->dongle, evt->wcid);
 		break;
 	case XONE_DONGLE_EVT_PAIR_CLIENT:
+		pr_debug("%s: XONE_DONGLE_EVT_PAIR_CLIENT", __func__);
 		err = xone_dongle_pair_client(evt->dongle, evt->address);
 		break;
 	case XONE_DONGLE_EVT_ENABLE_PAIRING:
+		pr_debug("%s: XONE_DONGLE_EVT_ENABLE_PAIRING", __func__);
 		mod_delayed_work(system_wq, &evt->dongle->pairing_work,
 				 XONE_DONGLE_PAIRING_TIMEOUT);
 		err = xone_dongle_toggle_pairing(evt->dongle, true);
 		break;
 	case XONE_DONGLE_EVT_ENABLE_ENCRYPTION:
+		pr_debug("%s: XONE_DONGLE_EVT_ENABLE_ENCRYPTION", __func__);
 		err = xone_dongle_enable_client_encryption(evt->dongle,
 							   evt->wcid);
 		break;
@@ -489,6 +520,7 @@ static void xone_dongle_handle_event(struct work_struct *work)
 		dev_err(evt->dongle->mt.dev, "%s: handle event failed: %d\n",
 			__func__, err);
 
+handle_event_free:
 	kfree(evt);
 }
 
@@ -855,75 +887,121 @@ static int xone_dongle_init_urbs_out(struct xone_dongle *dongle)
 	return 0;
 }
 
-static int xone_dongle_init(struct xone_dongle *dongle,
-			    const struct usb_device_id *id)
+static int xone_dongle_fw_requester(const struct firmware **fw,
+				    struct xone_dongle *dongle,
+				    const char *fwname)
 {
+	struct device *dev = dongle->mt.dev;
+	int err;
+
+	dev_dbg(dev, "%s: trying to load firmware %s\n", __func__, fwname);
+	for (int i = 0; i < XONE_DONGLE_FW_REQ_RETRIES; ++i) {
+		if (dongle->fw_state == XONE_DONGLE_FW_STATE_STOP_LOADING) {
+			pr_debug("%s: Stopping firmware load on demand", __func__);
+			return 1;
+		}
+
+		dev_dbg(dev, "%s: attempt: %d\n", __func__, i + 1);
+		err = request_firmware(fw, fwname, dev);
+		if (!err)
+			return 0;
+
+		msleep(XONE_DONGLE_FW_REQ_TIMEOUT_MS);
+	}
+
+	return err;
+}
+
+static void xone_dongle_fw_load(struct work_struct *work)
+{
+	struct xone_dongle *dongle =
+		container_of(work, struct xone_dongle, load_fw_work);
+
 	struct xone_mt76 *mt = &dongle->mt;
 	const struct firmware *fw;
 	char fwname[25];
 	int err;
 
+	switch (dongle->product) {
+	case XONE_DONGLE_KNOCKOFF_PRODUCT1:
+		snprintf(fwname, 25, "xow_dongle_%04x_%04x.bin", dongle->vendor,
+			 dongle->product);
+		break;
+
+	case XONE_DONGLE_OFFICIAL_PRODUCT:
+	default:
+		snprintf(fwname, 15, "xow_dongle.bin");
+	}
+
+	err = xone_dongle_fw_requester(&fw, dongle, fwname);
+	if (dongle->fw_state == XONE_DONGLE_FW_STATE_STOP_LOADING) {
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		return;
+	}
+
+	if (err) {
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		dev_err(mt->dev, "%s: request firmware failed: %d\n", __func__,
+			err);
+		return;
+	}
+	dev_dbg(mt->dev, "%s: firmware requested successfully\n", __func__);
+
+
+	err = xone_mt76_load_firmware(mt, fw);
+	release_firmware(fw);
+	if (err) {
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		dev_err(mt->dev, "%s: load firmware failed: %d\n",
+			__func__, err);
+		return;
+	}
+
+	err = xone_dongle_init_urbs_out(dongle);
+	if (err) {
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		return;
+	}
+
+	err = xone_dongle_init_urbs_in(dongle, XONE_MT_EP_IN_CMD,
+				       XONE_DONGLE_LEN_CMD_PKT);
+	if (err) {
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		return;
+	}
+
+	err = xone_dongle_init_urbs_in(dongle, XONE_MT_EP_IN_WLAN,
+				       XONE_DONGLE_LEN_WLAN_PKT);
+	if (err) {
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		return;
+	}
+
+	err = xone_mt76_init_radio(mt);
+	if (err){
+		dongle->fw_state = XONE_DONGLE_FW_STATE_ERROR;
+		dev_err(mt->dev, "%s: init radio failed: %d\n", __func__, err);
+		return;
+	}
+
+	dongle->fw_state = XONE_DONGLE_FW_STATE_READY;
+
+	device_wakeup_enable(&dongle->mt.udev->dev);
+	pm_runtime_set_autosuspend_delay(&dongle->mt.udev->dev,
+					 XONE_DONGLE_SUSPEND_DELAY);
+	usb_enable_autosuspend(dongle->mt.udev);
+}
+
+static int xone_dongle_init(struct xone_dongle *dongle)
+{
 	init_usb_anchor(&dongle->urbs_out_idle);
 	init_usb_anchor(&dongle->urbs_out_busy);
 	init_usb_anchor(&dongle->urbs_in_idle);
 	init_usb_anchor(&dongle->urbs_in_busy);
 
-	err = xone_dongle_init_urbs_out(dongle);
-	if (err)
-		return err;
-
-	err = xone_dongle_init_urbs_in(dongle, XONE_MT_EP_IN_CMD,
-				       XONE_DONGLE_LEN_CMD_PKT);
-	if (err)
-		return err;
-
-	err = xone_dongle_init_urbs_in(dongle, XONE_MT_EP_IN_WLAN,
-				       XONE_DONGLE_LEN_WLAN_PKT);
-	if (err)
-		return err;
-
-	/*
-	 * Skip loading "exact" firmware if the official
-	 * Microsoft dongle has been detected
-	 */
-	bool official_dongle =
-		(id->idVendor == 0x045e && id->idProduct == 0x02fe);
-
-	err = 0;
-	if (!official_dongle) {
-		snprintf(fwname, 25, "xow_dongle_%04x_%04x.bin",
-			 id->idVendor, id->idProduct);
-		dev_dbg(dongle->mt.dev, "%s: trying to load firmware %s\n",
-			__func__, fwname);
-		err = request_firmware(&fw, fwname, mt->dev);
-	}
-
-	if (err == -ENOENT || official_dongle) {
-		snprintf(fwname, 15, "xow_dongle.bin");
-		dev_dbg(dongle->mt.dev, "%s: trying to load firmware %s\n",
-			__func__, fwname);
-		err = request_firmware(&fw, fwname, mt->dev);
-	}
-
-	if (err) {
-		dev_err(mt->dev, "%s: request firmware failed: %d\n",
-			__func__, err);
-		return err;
-	}
-
-	err = xone_mt76_load_firmware(mt, fw);
-	release_firmware(fw);
-	if (err) {
-		dev_err(mt->dev, "%s: load firmware failed: %d\n",
-			__func__, err);
-		return err;
-	}
-
-	err = xone_mt76_init_radio(mt);
-	if (err)
-		dev_err(mt->dev, "%s: init radio failed: %d\n", __func__, err);
-
-	return err;
+	dongle->fw_state = XONE_DONGLE_FW_STATE_PENDING;
+	schedule_work(&dongle->load_fw_work);
+	return 0;
 }
 
 static int xone_dongle_power_off_clients(struct xone_dongle *dongle)
@@ -932,6 +1010,9 @@ static int xone_dongle_power_off_clients(struct xone_dongle *dongle)
 	int i;
 	int err = 0;
 	unsigned long flags;
+
+	if (dongle->fw_state != XONE_DONGLE_FW_STATE_READY)
+		return 0;
 
 	spin_lock_irqsave(&dongle->clients_lock, flags);
 
@@ -968,6 +1049,17 @@ static void xone_dongle_destroy(struct xone_dongle *dongle)
 	usb_kill_anchored_urbs(&dongle->urbs_in_busy);
 	destroy_workqueue(dongle->event_wq);
 	cancel_delayed_work_sync(&dongle->pairing_work);
+
+	if (dongle->fw_state < XONE_DONGLE_FW_STATE_ERROR) {
+		pr_debug("%s: Firmware not loaded, stopping work", __func__);
+		dongle->fw_state = XONE_DONGLE_FW_STATE_STOP_LOADING;
+		pr_debug("%s: Waiting for fw load work to finish", __func__);
+
+		while (dongle->fw_state == XONE_DONGLE_FW_STATE_STOP_LOADING)
+			msleep(500);
+
+		pr_debug("%s: FW loading cancelled", __func__);
+	}
 
 	for (i = 0; i < XONE_DONGLE_MAX_CLIENTS; i++) {
 		client = dongle->clients[i];
@@ -1006,7 +1098,8 @@ static int xone_dongle_probe(struct usb_interface *intf,
 	dongle->mt.dev = &intf->dev;
 	dongle->mt.udev = interface_to_usbdev(intf);
 
-	usb_reset_device(dongle->mt.udev);
+	dongle->vendor = id->idVendor;
+	dongle->product = id->idProduct;
 
 	dongle->event_wq = alloc_ordered_workqueue("xone_dongle", 0);
 	if (!dongle->event_wq)
@@ -1014,10 +1107,12 @@ static int xone_dongle_probe(struct usb_interface *intf,
 
 	mutex_init(&dongle->pairing_lock);
 	INIT_DELAYED_WORK(&dongle->pairing_work, xone_dongle_pairing_timeout);
+	INIT_WORK(&dongle->load_fw_work, xone_dongle_fw_load);
 	spin_lock_init(&dongle->clients_lock);
 	init_waitqueue_head(&dongle->disconnect_wait);
 
-	err = xone_dongle_init(dongle, id);
+	usb_reset_device(dongle->mt.udev);
+	err = xone_dongle_init(dongle);
 	if (err) {
 		xone_dongle_destroy(dongle);
 		return err;
@@ -1033,11 +1128,6 @@ static int xone_dongle_probe(struct usb_interface *intf,
 
 	/* enable USB remote wakeup and autosuspend */
 	intf->needs_remote_wakeup = true;
-	device_wakeup_enable(&dongle->mt.udev->dev);
-	pm_runtime_set_autosuspend_delay(&dongle->mt.udev->dev,
-					 XONE_DONGLE_SUSPEND_DELAY);
-	usb_enable_autosuspend(dongle->mt.udev);
-
 	return 0;
 }
 
@@ -1063,6 +1153,11 @@ static int xone_dongle_suspend(struct usb_interface *intf, pm_message_t message)
 	struct xone_dongle *dongle = usb_get_intfdata(intf);
 	int err;
 
+	if (dongle->fw_state != XONE_DONGLE_FW_STATE_READY){
+		pr_debug("%s: Skipping radio suspend", __func__);
+		return 0;
+	}
+
 	err = xone_dongle_power_off_clients(dongle);
 	if (err)
 		dev_err(dongle->mt.dev, "%s: power off failed: %d\n",
@@ -1081,6 +1176,11 @@ static int xone_dongle_resume(struct usb_interface *intf)
 	struct urb *urb;
 	int err;
 
+	if (dongle->fw_state != XONE_DONGLE_FW_STATE_READY){
+		pr_debug("%s: Skipping radio resume", __func__);
+		return 0;
+	}
+
 	while ((urb = usb_get_from_anchor(&dongle->urbs_in_idle))) {
 		usb_anchor_urb(urb, &dongle->urbs_in_busy);
 		usb_free_urb(urb);
@@ -1089,7 +1189,6 @@ static int xone_dongle_resume(struct usb_interface *intf)
 		if (err)
 			return err;
 	}
-
 	return xone_mt76_resume_radio(&dongle->mt);
 }
 
@@ -1104,6 +1203,9 @@ static void xone_dongle_shutdown(struct usb_interface *intf)
 	struct xone_dongle *dongle = usb_get_intfdata(intf);
 	int err;
 
+	if (dongle->fw_state != XONE_DONGLE_FW_STATE_READY)
+		dongle->fw_state = XONE_DONGLE_FW_STATE_STOP_LOADING;
+
 	if (system_state == SYSTEM_RESTART)
 		return;
 
@@ -1111,6 +1213,63 @@ static void xone_dongle_shutdown(struct usb_interface *intf)
 	if (err)
 		dev_err(dongle->mt.dev, "%s: power off failed: %d\n",
 			__func__, err);
+}
+
+static int xone_dongle_pre_reset(struct usb_interface *intf)
+{
+	struct xone_dongle *dongle = usb_get_intfdata(intf);
+	struct urb *urb;
+
+	pr_debug("%s", __func__);
+
+	/* For reset during probe */
+	if (!dongle)
+		return 0;
+
+	cancel_delayed_work_sync(&dongle->pairing_work);
+	usb_kill_anchored_urbs(&dongle->urbs_in_busy);
+	usb_kill_anchored_urbs(&dongle->urbs_out_busy);
+
+	while ((urb = usb_get_from_anchor(&dongle->urbs_out_idle)))
+		usb_free_urb(urb);
+
+	while ((urb = usb_get_from_anchor(&dongle->urbs_in_idle))) {
+		usb_free_coherent(urb->dev, urb->transfer_buffer_length,
+				  urb->transfer_buffer, urb->transfer_dma);
+		usb_free_urb(urb);
+	}
+
+	return 0;
+}
+
+static int xone_dongle_post_reset(struct usb_interface *intf)
+{
+	struct xone_dongle *dongle = usb_get_intfdata(intf);
+
+	pr_debug("%s", __func__);
+
+	/* For reset during probe */
+	if (!dongle)
+		return 0;
+
+	pr_debug("%s: Re-initializing dongle after reset", __func__);
+	return xone_dongle_init(dongle);
+}
+
+static int xone_dongle_reset_resume(struct usb_interface *intf)
+{
+	struct xone_dongle *dongle = usb_get_intfdata(intf);
+	int err;
+
+	pr_debug("%s", __func__);
+
+	err = usb_reset_device(dongle->mt.udev);
+	if (err == -EINPROGRESS) {
+		pr_debug("%s: Reset already in progress", __func__);
+		return 0;
+	}
+
+	return err;
 }
 
 static const struct usb_device_id xone_dongle_id_table[] = {
@@ -1125,9 +1284,14 @@ static struct usb_driver xone_dongle_driver = {
 	.name = "xone-dongle",
 	.probe = xone_dongle_probe,
 	.disconnect = xone_dongle_disconnect,
+	.id_table = xone_dongle_id_table,
+
+#ifdef CONFIG_PM
 	.suspend = xone_dongle_suspend,
 	.resume = xone_dongle_resume,
-	.id_table = xone_dongle_id_table,
+	.reset_resume = xone_dongle_reset_resume,
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
 	.drvwrap.driver.shutdown = xone_dongle_shutdown,
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
@@ -1135,6 +1299,8 @@ static struct usb_driver xone_dongle_driver = {
 #else
 	.shutdown = xone_dongle_shutdown,
 #endif
+	.pre_reset = xone_dongle_pre_reset,
+	.post_reset = xone_dongle_post_reset,
 	.supports_autosuspend = true,
 	.disable_hub_initiated_lpm = true,
 	.soft_unbind = true,

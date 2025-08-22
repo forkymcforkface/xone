@@ -16,3 +16,19 @@ unload:
 
 load: unload
 	./modules_load.sh
+
+test:
+	$(MAKE) debug &&\
+		$(MAKE) load
+	$(MAKE) clean
+
+remove: clean
+	./uninstall.sh
+
+install: clean
+	./install.sh
+	./install/firmware.sh --skip-disclaimer
+
+install-debug: clean
+	./install.sh --debug
+	./install/firmware.sh --skip-disclaimer

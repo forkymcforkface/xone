@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#! /usr/bin/env bash
 
 set -eu
 
@@ -9,11 +9,6 @@ fi
 
 if ! [ -x "$(command -v dkms)" ]; then
     echo 'This script requires DKMS!' >&2
-    exit 1
-fi
-
-if [ -n "$(dkms status xone)" ]; then
-    echo 'Driver is already installed!' >&2
     exit 1
 fi
 
@@ -29,15 +24,23 @@ else
     version=unknown
 fi
 
+# remove "v" prefix
+version=${version##v}
+
 source="/usr/src/xone-$version"
 log="/var/lib/dkms/xone/$version/build/make.log"
+
+if [ -n "$(dkms status xone)" ]; then
+    echo -e 'Driver is already installed, uninstalling...\n'
+    ./uninstall.sh --no-firmware
+fi
 
 echo "Installing xone $version..."
 cp -r . "$source"
 find "$source" -type f \( -name dkms.conf -o -name '*.c' \) -exec sed -i "s/#VERSION#/$version/" {} +
 
-# The MAKE line in dkms.conf is required for kernels built using clang. Remove
-# it if the kernel is built using gcc - i.e. "clang" is not in the kernel
+# The MAKE line in dkms.conf is required for kernels built using clang.
+# Add it if the kernel is built using gcc - i.e. "clang" is in the kernel
 # version string.
 if [ -n "$(cat /proc/version | grep clang)" ]; then
     echo 'MAKE[0]="make V=1 LLVM=1 -C ${kernel_source_dir}'\
@@ -45,11 +48,11 @@ if [ -n "$(cat /proc/version | grep clang)" ]; then
         >> "$source/dkms.conf"
 fi
 
-if [ "${1:-}" != --release ]; then
+if [ "${1:-}" == --debug ]; then
     echo 'ccflags-y += -DDEBUG' >> "$source/Kbuild"
 fi
 
-if dkms install -m xone -v "$version"; then
+if dkms install -m xone -v "$version" --force; then
     # The blacklist should be placed in /usr/local/lib/modprobe.d for kmod 29+
     install -D -m 644 install/modprobe.conf /etc/modprobe.d/xone-blacklist.conf
 
@@ -69,3 +72,5 @@ else
 
     exit 1
 fi
+
+echo -e "\nxone installation finished\n"
